@@ -4,60 +4,9 @@ from pyspark.ml.recommendation import ALS
 from pyspark.ml.evaluation import RegressionEvaluator
 from pyspark.sql import SQLContext
 
+
+
 class RecommendationEngine:
-    def __init__(self, sc, movies_set_path, ratings_set_path):
-    # Méthode d'initialisation pour charger les ensembles de données et entraîner le modèle
-    # Cette méthode d'initialisation est appelée lors de la création d'une instance de la classe RecommendationEngine.
-    # Elle prend en paramètres le contexte Spark (sc), le chemin vers l'ensemble de données de films (movies_set_path) et le chemin vers l'ensemble de données d'évaluations (ratings_set_path).
-
-    # La méthode initialise le contexte SQL à partir du contexte Spark sc
-    sqlContext = SQLContext(self.sc)
-    
-    # Charge les données des ensembles de films et d'évaluations à partir des fichiers CSV spécifiés
-
-    #Movies
-
-    # définit le schéma des données
-    moviesStruct = [StructField("movieId", IntegerType(), True),
-        StructField("title", StringType(), True),
-        StructField("genres", StringType(), True)]
-
-    moviesSchema = StructType(moviesStruct)
-
-    moviesDF = spark.read.format("csv").option("header", "true").option("delimiter", ",").schema(moviesSchema).load(movies_set_path)
-    moviesDF.write.parquet("hdfs:///user/root/data/MOV/PARQUET/movies.parquet")
-
-    self.moviesDF = spark.read.parquet("hdfs:///user/root/data/MOV/PARQUET/movies.parquet")
-    self.moviesDF.cache()
-
-    #Ratings
-    # définit le schéma des données
-    ratingsStruct = [StructField("userId", IntegerType(), True),
-        StructField("movieId", IntegerType(), True),
-        StructField("rating", DoubleType(), True),
-        StructField("timestamp", IntegerType(), True)]
-
-    ratingsSchema = StructType(ratingsStruct)
-
-    # Read ratings from HDFS (FIRST TIME ONLY)
-    ratingsDF = spark.read.format("csv").option("header", "true").option("delimiter", ",").schema(ratingsSchema).load("hdfs:///user/root/data/MOV/CSV/ratings.csv")
-    ratingsDF.write.parquet("hdfs:///user/root/data/MOV/PARQUET/ratings.parquet")
-
-    self.ratingsDF = spark.read.parquet("hdfs:///user/root/data/MOV/PARQUET/ratings.parquet").drop("timestamp")
-    self.ratingsDF.cache()
-
-    # Unique Users Id :
-    self.usersDF = ratingsDF.select("userId").distinct()
-
-    # effectue diverses opérations de traitement des données
-
-    self.maxIter=5,
-    self.regParam=0.01, 
-
-    # entraîne le modèle en utilisant la méthode privée __train_model()
-    __train_model(self)
-
-
 
     def create_user(self, user_id):
         # Méthode pour créer un nouvel utilisateur
@@ -78,13 +27,11 @@ class RecommendationEngine:
         # Méthode pour vérifier si un utilisateur est connu
         # Cette méthode permet de vérifier si un utilisateur est connu.
         # Elle prend en paramètre un user_id et retourne True si l'utilisateur est connu (c'est-à-dire si user_id est différent de None et inférieur ou égal à max_user_identifier), sinon elle retourne False.
-    existing_count = self.ratingsDF.filter(self.ratingsDF.userID == user_id).count()
+        existing_count = self.ratingsDF.filter(self.ratingsDF.userID == user_id).count()
 
     # Vérifier le résultat
-    if existing_count > 0:
-        return True
-    else:
-        return False
+        return existing_count > 0 #Vrai s'il y en a Faux sinon
+
  
     def get_movie(self, movie_id):
         # Méthode pour obtenir un film
@@ -92,11 +39,11 @@ class RecommendationEngine:
         # Elle prend en paramètre un movie_id facultatif pour spécifier l'identifiant du film. Si movie_id est None, la méthode retourne un échantillon aléatoire d'un film à partir du dataframe best_movies_df. Sinon, elle filtre le dataframe movies_df pour obtenir le film correspondant à movie_id.
         # La méthode retourne un dataframe contenant les informations du film (colonne "movieId" et "title").
     
-    if movie_id == None:
-        random_movie_id = [row.movieId for row in self.moviesDF.select("movieId").collect()]
-        return self.moviesDF.filter(self.moviesDF.movieId == random_movie_id).select("movieId","title")
-    else:
-        return self.moviesDF.filter(self.moviesDF.movieId == movie_id).select("movieId","title")
+        if movie_id == None:
+            random_movie_id = [row.movieId for row in self.moviesDF.select("movieId").collect()]
+            return self.moviesDF.filter(self.moviesDF.movieId == random_movie_id).select("movieId","title")
+        else:
+            return self.moviesDF.filter(self.moviesDF.movieId == movie_id).select("movieId","title")
 
 
     def get_ratings_for_user(self, user_id):
@@ -116,19 +63,19 @@ class RecommendationEngine:
         # Enfin, la méthode privée __train_model() est appelée pour re-entraîner le modèle.
 
         
-    new_ratings_schema = StructType([
-        StructField("userId", IntegerType(), True),
-        StructField("movieId", IntegerType(), True),
-        StructField("rating", DoubleType(), True)
-    ])
+        new_ratings_schema = StructType([
+            StructField("userId", IntegerType(), True),
+            StructField("movieId", IntegerType(), True),
+            StructField("rating", DoubleType(), True)
+        ])
 
-    new_ratings_df = spark.createDataFrame(ratings, new_ratings_schema)
+        new_ratings_df = spark.createDataFrame(ratings, new_ratings_schema)
 
-    self.ratings_df = self.ratings_df.union(newRatingsDF)
+        self.ratings_df = self.ratings_df.union(newRatingsDF)
 
-    self.trainingDF, self.testDF = self.ratings_df.randomSplit([0.8, 0.2], seed=12345)
+        self.trainingDF, self.testDF = self.ratings_df.randomSplit([0.8, 0.2], seed=12345)
 
-    __train_model(self)
+        self.__train_model()
 
 
 
@@ -178,17 +125,17 @@ class RecommendationEngine:
         # Ensuite, le modèle est entraîné en utilisant le dataframe training.
         # La méthode privée __evaluate() est appelée pour évaluer les performances du modèle.
         
-        als = ALS(maxIter=self.maxIter,
-          regParam=self.regParam, 
+        als = ALS(maxIter=self.maxIter_class,
+          regParam=self.regParam_class, 
           implicitPrefs=False, 
           userCol="userId", 
           itemCol="movieId", 
           ratingCol="rating", 
           coldStartStrategy="drop")
 
-        self.model = als.fit(trainingDF)
+        self.model = als.fit(self.trainingDF)
 
-        __evaluate()
+        self.__evaluate()
 
     def __evaluate(self):
         # Méthode privée pour évaluer le modèle en calculant l'erreur quadratique moyenne
@@ -197,5 +144,86 @@ class RecommendationEngine:
         # Ensuite, elle utilise l'évaluateur de régression pour calculer le RMSE en comparant les prédictions avec les vraies évaluations.
         # La valeur de RMSE est stockée dans la variable rmse de la classe et affichée à l'écran.
 
+        evaluator = RegressionEvaluator(
+           metricName="rmse", 
+           labelCol="rating", 
+           predictionCol="prediction") 
         
+        self.trainingDF, self.testDF = self.ratingsDF.randomSplit([0.8, 0.2], seed=12345)
+        
+        predictions = self.model.transform(self.testDF)
+        
+        self.rmse = evaluator.evaluate(predictions)
+        print("Root-mean-square error = " + str(self.rmse))
 
+
+    def __init__(self, sc, movies_set_path, ratings_set_path):
+        # Méthode d'initialisation pour charger les ensembles de données et entraîner le modèle
+        # Cette méthode d'initialisation est appelée lors de la création d'une instance de la classe RecommendationEngine.
+        # Elle prend en paramètres le contexte Spark (sc), le chemin vers l'ensemble de données de films (movies_set_path) et le chemin vers l'ensemble de données d'évaluations (ratings_set_path).
+
+        self.sc = sc
+        self.movies_set_path = movies_set_path
+        self.ratings_set_path = ratings_set_path
+
+        # La méthode initialise le contexte SQL à partir du contexte Spark sc
+        sqlContext = SQLContext(self.sc)
+        
+        # Charge les données des ensembles de films et d'évaluations à partir des fichiers CSV spécifiés
+
+        #Movies
+
+        # définit le schéma des données
+        moviesStruct = [StructField("movieId", IntegerType(), True),
+            StructField("title", StringType(), True),
+            StructField("genres", StringType(), True)]
+
+        moviesSchema = StructType(moviesStruct)
+
+        moviesDF = spark.read.format("csv").option("header", "true").option("delimiter", ",").schema(moviesSchema).load(movies_set_path)
+        moviesDF.write.mode("overwrite").format("parquet").save("data_movies.parquet")
+
+        self.moviesDF = spark.read.parquet("data_movies.parquet")
+        self.moviesDF.cache()
+
+        #Ratings
+        # définit le schéma des données
+        ratingsStruct = [StructField("userId", IntegerType(), True),
+            StructField("movieId", IntegerType(), True),
+            StructField("rating", DoubleType(), True),
+            StructField("timestamp", IntegerType(), True)]
+
+        ratingsSchema = StructType(ratingsStruct)
+
+        # Read ratings from HDFS (FIRST TIME ONLY)
+        ratingsDF = spark.read.format("csv").option("header", "true").option("delimiter", ",").schema(ratingsSchema).load(ratings_set_path)
+        ratingsDF.write.mode("overwrite").format("parquet").save("data_ratings.parquet")
+
+        self.ratingsDF = spark.read.parquet("data_ratings.parquet").drop("timestamp")
+        self.ratingsDF.cache()
+
+        self.trainingDF, self.testDF = self.ratingsDF.randomSplit([0.8, 0.2], seed=12345)
+
+        # Unique Users Id :
+        # self.usersDF = ratingsDF.select("userId").distinct()
+
+        # effectue diverses opérations de traitement des données
+
+        self.maxIter_class= 5
+        self.regParam_class=0.01
+        self.rmse = None
+
+        # entraîne le modèle en utilisant la méthode privée __train_model()
+        self.__train_model()
+
+
+
+
+
+# from pyspark import SparkContext
+from pyspark.sql import SparkSession
+
+# sc = SparkContext.getOrCreate()
+sc = SparkSession.builder.getOrCreate()
+
+engine = RecommendationEngine(sc, "Spark-movie-recommendation-main/app/ml-latest/movies.csv", "Spark-movie-recommendation-main/app/ml-latest/ratings.csv")
