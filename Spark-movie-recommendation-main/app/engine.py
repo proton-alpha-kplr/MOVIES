@@ -8,6 +8,18 @@ from pyspark.sql import SQLContext
 
 class RecommendationEngine:
 
+
+
+    def is_user_known(self, user_id):
+        # Méthode pour vérifier si un utilisateur est connu
+        # Cette méthode permet de vérifier si un utilisateur est connu.
+        # Elle prend en paramètre un user_id et retourne True si l'utilisateur est connu (c'est-à-dire si user_id est différent de None et inférieur ou égal à max_user_identifier), sinon elle retourne False.
+        existing_count = self.ratingsDF.filter(self.ratingsDF.userId == user_id).count()
+
+    # Vérifier le résultat
+        return existing_count > 0 #Vrai s'il y en a Faux sinon
+
+
     def create_user(self, user_id):
         # Méthode pour créer un nouvel utilisateur
             # Cette méthode permet de créer un nouvel utilisateur.
@@ -17,21 +29,11 @@ class RecommendationEngine:
         max_user_identifier = self.ratingsDF.agg({"userId": "max"}).collect()[0][0]
         if user_id == None:
             return max_user_identifier + 1
-        elif is_user_known(user_id):
+        elif self.is_user_known(user_id):
             return(user_id)
         else:
             return max_user_identifier + 1
         
-
-    def is_user_known(self, user_id):
-        # Méthode pour vérifier si un utilisateur est connu
-        # Cette méthode permet de vérifier si un utilisateur est connu.
-        # Elle prend en paramètre un user_id et retourne True si l'utilisateur est connu (c'est-à-dire si user_id est différent de None et inférieur ou égal à max_user_identifier), sinon elle retourne False.
-        existing_count = self.ratingsDF.filter(self.ratingsDF.userID == user_id).count()
-
-    # Vérifier le résultat
-        return existing_count > 0 #Vrai s'il y en a Faux sinon
-
  
     def get_movie(self, movie_id):
         # Méthode pour obtenir un film
@@ -40,8 +42,8 @@ class RecommendationEngine:
         # La méthode retourne un dataframe contenant les informations du film (colonne "movieId" et "title").
     
         if movie_id == None:
-            random_movie_id = [row.movieId for row in self.moviesDF.select("movieId").collect()]
-            return self.moviesDF.filter(self.moviesDF.movieId == random_movie_id).select("movieId","title")
+            return self.moviesDF.sample(1, seed=42).first().select("movieId","title")
+
         else:
             return self.moviesDF.filter(self.moviesDF.movieId == movie_id).select("movieId","title")
 
@@ -51,7 +53,7 @@ class RecommendationEngine:
         # Cette méthode permet d'obtenir les évaluations d'un utilisateur.
         # Elle prend en paramètre un user_id et filtre le dataframe ratings_df pour obtenir les évaluations correspondantes à l'utilisateur.
         # La méthode retourne un dataframe contenant les évaluations de l'utilisateur (colonnes "movieId", "userId" et "rating").
-        return self.ratingsDF.filter(self.ratingsDF.userID == user_id).select("movieId", "userId", "rating")
+        return self.ratingsDF.filter(self.ratingsDF["userId"] == user_id).select("movieId", "userId", "rating")
         
 
     def add_ratings(self, user_id, ratings):
@@ -97,7 +99,7 @@ class RecommendationEngine:
         predictions_df = self.model.transform(rating_df)
 
         if predictions_df.count() > 0:
-            return predictions_df.filter(self.ratingsDF.userID == user_id).filter(self.ratingsDF.movie_id == movie_id).select("prediction").collect()[0][0]
+            return predictions_df.filter(self.ratingsDF["userId"] == user_id).filter(self.ratingsDF["movie_id"] == movie_id).select("prediction").collect()[0][0]
         else :
             return -1
 
@@ -114,7 +116,9 @@ class RecommendationEngine:
         user_df = spark.createDataFrame([user_id])
         userSubsetRecs_df = model.recommendForUserSubset(user_df, nb_movies)
         result_df = self.movies_df.join(userSubsetRecs_df, userSubsetRecs_df["movieId"] ==  movies_df["movieId"] , "inner")
-        return result_df.select(self.movies_df["movieId"], self.movies_df["title"], self.movies_df["genres"])
+        result_df = result_df.select(self.movies_df["movieId"], self.movies_df["title"], self.movies_df["genres"])
+        print(display(result_df))
+        return result_df
 
 
 
@@ -181,9 +185,9 @@ class RecommendationEngine:
         moviesSchema = StructType(moviesStruct)
 
         moviesDF = spark.read.format("csv").option("header", "true").option("delimiter", ",").schema(moviesSchema).load(movies_set_path)
-        moviesDF.write.mode("overwrite").format("parquet").save("data_movies.parquet")
+        moviesDF.write.mode("overwrite").format("parquet").save("/FileStore/tables/Movies_data/data_movies.parquet")
 
-        self.moviesDF = spark.read.parquet("data_movies.parquet")
+        self.moviesDF = spark.read.parquet("/FileStore/tables/Movies_data/data_movies.parquet")
         self.moviesDF.cache()
 
         #Ratings
@@ -197,9 +201,10 @@ class RecommendationEngine:
 
         # Read ratings from HDFS (FIRST TIME ONLY)
         ratingsDF = spark.read.format("csv").option("header", "true").option("delimiter", ",").schema(ratingsSchema).load(ratings_set_path)
-        ratingsDF.write.mode("overwrite").format("parquet").save("data_ratings.parquet")
+        ratingsDF.write.mode("overwrite").format("parquet").save("/FileStore/tables/Movies_data/data_ratings.parquet")
+        
 
-        self.ratingsDF = spark.read.parquet("data_ratings.parquet").drop("timestamp")
+        self.ratingsDF = spark.read.parquet("/FileStore/tables/Movies_data/data_ratings.parquet").drop("timestamp")
         self.ratingsDF.cache()
 
         self.trainingDF, self.testDF = self.ratingsDF.randomSplit([0.8, 0.2], seed=12345)
