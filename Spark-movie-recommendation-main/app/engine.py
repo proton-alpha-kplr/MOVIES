@@ -51,6 +51,9 @@ class RecommendationEngine:
 
     # effectue diverses opérations de traitement des données
 
+    self.maxIter=5,
+    self.regParam=0.01, 
+
     # entraîne le modèle en utilisant la méthode privée __train_model()
     __train_model(self)
 
@@ -144,20 +147,55 @@ class RecommendationEngine:
 
         rating_df = spark.createDataFrame(row, ratingsStruct)
 
-        predictions = model.transform(rating_df)
+        predictions_df = self.model.transform(rating_df)
 
+        if predictions_df.count() > 0:
+            return predictions_df.filter(self.ratingsDF.userID == user_id).filter(self.ratingsDF.movie_id == movie_id).select("prediction").collect()[0][0]
+        else :
+            return -1
 
 
 
     def recommend_for_user(self, user_id, nb_movies):
         # Méthode pour obtenir les meilleures recommandations pour un utilisateur donné
-        ...
+        # Cette méthode permet d'obtenir les meilleures recommandations pour un utilisateur donné.
+        # Elle prend en paramètres un user_id et un nombre de films nb_movies à recommander.
+        # La méthode crée un dataframe user_df contenant l'identifiant de l'utilisateur et utilise la méthode recommendForUserSubset() du modèle pour obtenir les recommandations pour cet utilisateur.
+        # Les recommandations sont ensuite jointes avec le dataframe movies_df pour obtenir les détails des films recommandés.
+        # Le dataframe résultant est retourné avec les colonnes "title" et d'autres colonnes du dataframe movies_df.
+
+        user_df = spark.createDataFrame([user_id])
+        userSubsetRecs_df = model.recommendForUserSubset(user_df, nb_movies)
+        result_df = self.movies_df.join(userSubsetRecs_df, userSubsetRecs_df["movieId"] ==  movies_df["movieId"] , "inner")
+        return result_df.select(self.movies_df["movieId"], self.movies_df["title"], self.movies_df["genres"])
+
+
 
     def __train_model(self):
         # Méthode privée pour entraîner le modèle avec ALS
-        ...
+        # Cette méthode privée permet d'entraîner le modèle avec l'algorithme ALS (Alternating Least Squares).
+        # Elle utilise les paramètres maxIter et regParam définis dans l'initialisation de la classe pour créer une instance de l'algorithme ALS.
+        # Ensuite, le modèle est entraîné en utilisant le dataframe training.
+        # La méthode privée __evaluate() est appelée pour évaluer les performances du modèle.
+        
+        als = ALS(maxIter=self.maxIter,
+          regParam=self.regParam, 
+          implicitPrefs=False, 
+          userCol="userId", 
+          itemCol="movieId", 
+          ratingCol="rating", 
+          coldStartStrategy="drop")
+
+        self.model = als.fit(trainingDF)
+
+        __evaluate()
 
     def __evaluate(self):
         # Méthode privée pour évaluer le modèle en calculant l'erreur quadratique moyenne
-        ...
+        # Cette méthode privée permet d'évaluer le modèle en calculant l'erreur quadratique moyenne (RMSE - Root-mean-square error).
+        # Elle utilise le modèle pour prédire les évaluations sur le dataframe test.
+        # Ensuite, elle utilise l'évaluateur de régression pour calculer le RMSE en comparant les prédictions avec les vraies évaluations.
+        # La valeur de RMSE est stockée dans la variable rmse de la classe et affichée à l'écran.
+
+        
 
