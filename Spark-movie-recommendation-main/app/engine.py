@@ -71,7 +71,7 @@ class RecommendationEngine:
             StructField("rating", DoubleType(), True)
         ])
 
-        new_ratings_df = spark.createDataFrame(ratings, new_ratings_schema)
+        new_ratings_df = self.sc.createDataFrame(ratings, new_ratings_schema)
 
         self.ratings_df = self.ratings_df.union(newRatingsDF)
 
@@ -94,7 +94,7 @@ class RecommendationEngine:
         
         row = [user_id, movie_id, None]
 
-        rating_df = spark.createDataFrame(row, ratingsStruct)
+        rating_df = self.sc.createDataFrame(row, ratingsStruct)
 
         predictions_df = self.model.transform(rating_df)
 
@@ -113,7 +113,7 @@ class RecommendationEngine:
         # Les recommandations sont ensuite jointes avec le dataframe movies_df pour obtenir les détails des films recommandés.
         # Le dataframe résultant est retourné avec les colonnes "title" et d'autres colonnes du dataframe movies_df.
 
-        user_df = spark.createDataFrame([user_id])
+        user_df = self.sc.createDataFrame([user_id])
         userSubsetRecs_df = model.recommendForUserSubset(user_df, nb_movies)
         result_df = self.movies_df.join(userSubsetRecs_df, userSubsetRecs_df["movieId"] ==  movies_df["movieId"] , "inner")
         result_df = result_df.select(self.movies_df["movieId"], self.movies_df["title"], self.movies_df["genres"])
@@ -184,10 +184,10 @@ class RecommendationEngine:
 
         moviesSchema = StructType(moviesStruct)
 
-        moviesDF = spark.read.format("csv").option("header", "true").option("delimiter", ",").schema(moviesSchema).load(movies_set_path)
-        moviesDF.write.mode("overwrite").format("parquet").save("/FileStore/tables/Movies_data/data_movies.parquet")
+        moviesDF = self.sc.read.format("csv").option("header", "true").option("delimiter", ",").schema(moviesSchema).load(movies_set_path)
+        moviesDF.write.mode("overwrite").format("parquet").save("data_movies.parquet")
 
-        self.moviesDF = spark.read.parquet("/FileStore/tables/Movies_data/data_movies.parquet")
+        self.moviesDF = self.sc.read.parquet("data_movies.parquet")
         self.moviesDF.cache()
 
         #Ratings
@@ -200,11 +200,11 @@ class RecommendationEngine:
         ratingsSchema = StructType(ratingsStruct)
 
         # Read ratings from HDFS (FIRST TIME ONLY)
-        ratingsDF = spark.read.format("csv").option("header", "true").option("delimiter", ",").schema(ratingsSchema).load(ratings_set_path)
-        ratingsDF.write.mode("overwrite").format("parquet").save("/FileStore/tables/Movies_data/data_ratings.parquet")
+        ratingsDF = self.sc.read.format("csv").option("header", "true").option("delimiter", ",").schema(ratingsSchema).load(ratings_set_path)
+        ratingsDF.write.mode("overwrite").format("parquet").save("data_ratings.parquet")
         
 
-        self.ratingsDF = spark.read.parquet("/FileStore/tables/Movies_data/data_ratings.parquet").drop("timestamp")
+        self.ratingsDF = self.sc.read.parquet("data_ratings.parquet").drop("timestamp")
         self.ratingsDF.cache()
 
         self.trainingDF, self.testDF = self.ratingsDF.randomSplit([0.8, 0.2], seed=12345)
@@ -232,3 +232,27 @@ from pyspark.sql import SparkSession
 sc = SparkSession.builder.getOrCreate()
 
 engine = RecommendationEngine(sc, "Spark-movie-recommendation-main/app/ml-latest/movies.csv", "Spark-movie-recommendation-main/app/ml-latest/ratings.csv")
+
+
+# Exemple d'utilisation des méthodes de la classe RecommendationEngine
+# user_id = engine.create_user(None)
+
+user_id = engine.create_user(200)
+
+
+if engine.is_user_known(user_id):
+    movie = engine.get_movie(None)
+    print("1", movie)
+    print("2", display(movie))
+    ratings = engine.get_ratings_for_user(user_id)
+    print("3",ratings)
+    print("4", display(ratings))
+    engine.add_ratings(user_id, ratings)
+    print("5", movie.movieId)
+    print("6", type(movie.movieId))
+    id_movie = movie.select("movieId").first()[0]
+    print("user_id pour prédictions",user_id)
+    print("id_movie pour prédictions",id_movie)
+    prediction = engine.predict_rating(user_id, id_movie)
+    recommendations = engine.recommend_for_user(user_id, 10)
+
